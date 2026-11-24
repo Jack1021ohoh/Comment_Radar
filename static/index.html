@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Comment Radar</title>
+    <meta name="description" content="Paste a YouTube link. Comment Radar finds groups of accounts that act together in its comments, with the evidence." />
+    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b5bdb' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Ccircle cx='12' cy='12' r='5'/%3E%3Cpath d='M12 12 19 6'/%3E%3C/svg%3E" />
+</head>
+<body>
+    <header class="topbar">
+        <a class="brand" href="/">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><path d="M12 12 19 6" /><circle cx="12" cy="12" r="1.5" fill="currentColor" /></svg>
+            <div><b>Comment Radar</b><span>Who's really in the comments?</span></div>
+        </a>
+        <div class="spacer"></div>
+        <button class="icon-btn" id="btn-theme" type="button" title="Toggle theme" aria-label="Toggle theme">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" /></svg>
+        </button>
+    </header>
+
+    <main>
+        <section class="hero">
+            <div class="hero-copy">
+                <h1>Find the accounts that act <em>together</em>.</h1>
+                <p>Paste a YouTube video. Comment Radar reads its comments and the commenters' public profiles, finds groups of accounts that move as one,
+                    and has an Investigator and a Defense argue each case before it reports. It flags groups with evidence, never single people.</p>
+                <dl class="facts">
+                    <div><dt>For</dt><dd>Journalists and fact-checkers who need to know whether a comment section's "public opinion" is real.</dd></div>
+                    <div><dt>Looks at</dt><dd>Near-copy comments, bursts, young accounts replying together, accounts created in the same weeks, and sentiment.</dd></div>
+                    <div><dt>Can't</dt><dd>See IP addresses or private data, read other platforms yet, or prove who runs an account.</dd></div>
+                </dl>
+            </div>
+            <form class="card composer" id="ask">
+                <label class="eyebrow" for="url">YouTube video link</label>
+                <input id="url" type="url" inputmode="url" placeholder="https://www.youtube.com/watch?v=..." required autocomplete="off" />
+                <div class="row">
+                    <button class="btn" id="run" type="submit">Analyze</button>
+                    <label class="check"><input type="checkbox" id="fresh" /> Fetch again</label>
+                </div>
+                <div id="examples-wrap" class="hidden">
+                    <div class="eyebrow">Try one</div>
+                    <div class="examples" id="examples"></div>
+                </div>
+            </form>
+        </section>
+
+        <div class="card error-card hidden" id="error" role="alert"></div>
+
+        <section class="card status hidden" id="status" aria-live="polite">
+            <div class="status-head">
+                <b id="status-title">Analyzing…</b>
+                <span class="muted" id="elapsed">0s</span>
+            </div>
+            <ol class="steps" id="steps">
+                <li data-step="fetch"><b>Fetch</b><span>Comments and profiles</span></li>
+                <li data-step="sentiment"><b>Sentiment</b><span>ML model, every comment</span></li>
+                <li data-step="signals"><b>Signals</b><span>Candidate groups</span></li>
+                <li data-step="investigate"><b>Investigate</b><span>Investigator vs Defense</span></li>
+                <li data-step="report"><b>Report</b><span>Verdict and summary</span></li>
+            </ol>
+            <ul class="log" id="log"></ul>
+        </section>
+
+        <section class="hidden" id="results">
+            <div class="card verdict" id="verdict"></div>
+            <div class="tiles" id="tiles"></div>
+            <div class="grid2">
+                <section class="card">
+                    <h2>Sentiment: groups vs everyone else</h2>
+                    <div id="sentiment"></div>
+                </section>
+                <section class="card">
+                    <h2>Comments over time <small id="tl-note"></small></h2>
+                    <div id="timeline"></div>
+                </section>
+            </div>
+            <section class="card">
+                <h2>Groups <small>candidates from the statistics, each argued by an Investigator and a Defense</small></h2>
+                <div id="groups"></div>
+            </section>
+            <section class="card">
+                <h2>Comments <small id="comments-note"></small></h2>
+                <div class="filters" id="filters"></div>
+                <div id="comments"></div>
+                <button class="btn ghost hidden" id="more" type="button">Show more</button>
+            </section>
+        </section>
+    </main>
+
+    <footer>
+        Comment Radar's labels are its own analysis, not YouTube data. It reports groups, not individuals; accounts are shown as masked ids.
+        Data: YouTube Data API v3. Models: Gemini on Vertex AI; sentiment by a Hugging Face model.
+    </footer>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

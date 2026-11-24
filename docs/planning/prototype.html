@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Comment Radar Prototype</title>
+<style>
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #f0f2f5;
+  --text: #1b1f24;
+  --muted: #5d6673;
+  --border: #dde1e6;
+  --accent: #3b5bdb;
+  --favor: #0f8a83;
+  --against: #c2700c;
+  --none: #8a94a3;
+  --biased: #c92a5b;
+  --biased-bg: #fde8ef;
+  --neutral: #2f7d32;
+  --opinion: #5c6bc0;
+  --group: #7048e8;
+  --group-bg: #f1ecff;
+  --warn-bg: #fff6e0;
+  --warn-text: #7a5300;
+  --mark: #ffe0e9;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111418;
+    --surface: #1a1e24;
+    --surface-2: #222831;
+    --text: #e8ebef;
+    --muted: #9aa4b2;
+    --border: #2e3540;
+    --accent: #7c93ff;
+    --favor: #36c2b8;
+    --against: #f0a046;
+    --none: #7a8494;
+    --biased: #ff6b95;
+    --biased-bg: #3a1a26;
+    --neutral: #6cc070;
+    --opinion: #8e9bf0;
+    --group: #a48bff;
+    --group-bg: #2a2342;
+    --warn-bg: #3a3017;
+    --warn-text: #f3d27a;
+    --mark: #5a2236;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111418; --surface: #1a1e24; --surface-2: #222831; --text: #e8ebef; --muted: #9aa4b2;
+  --border: #2e3540; --accent: #7c93ff; --favor: #36c2b8; --against: #f0a046; --none: #7a8494;
+  --biased: #ff6b95; --biased-bg: #3a1a26; --neutral: #6cc070; --opinion: #8e9bf0; --group: #a48bff;
+  --group-bg: #2a2342; --warn-bg: #3a3017; --warn-text: #f3d27a; --mark: #5a2236;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px 48px; }
+.banner {
+  background: var(--warn-bg); color: var(--warn-text); font-size: 13px;
+  padding: 8px 16px; text-align: center;
+}
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 20px 0 12px; }
+.logo { font-weight: 700; font-size: 20px; letter-spacing: -0.01em; display: flex; align-items: center; gap: 8px; }
+.logo svg { width: 26px; height: 26px; }
+.theme-btn { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 8px; padding: 4px 10px; cursor: pointer; font-size: 13px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+h2 { font-size: 15px; margin: 0 0 12px; }
+h2 small { font-weight: 400; color: var(--muted); margin-left: 6px; }
+.input-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.field input { width: 100%; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); color: var(--text); font: inherit; }
+.btn { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 9px 18px; font: inherit; font-weight: 600; cursor: pointer; align-self: end; }
+.target { margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 14px; }
+.target b { background: var(--surface-2); padding: 3px 8px; border-radius: 6px; }
+.status { margin-top: 10px; font-size: 13px; color: var(--muted); }
+.status .ok { color: var(--neutral); font-weight: 600; }
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+.tile .v { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.tile .l { font-size: 13px; color: var(--muted); }
+.tile .d { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+.grid2 { display: grid; grid-template-columns: 1.15fr 1fr; gap: 16px; }
+.cmp-row { margin-bottom: 14px; }
+.cmp-head { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
+.cmp-head span { color: var(--muted); }
+.bar { display: flex; height: 22px; border-radius: 6px; overflow: hidden; background: var(--surface-2); }
+.bar div { display: flex; align-items: center; justify-content: center; font-size: 11px; color: #fff; font-weight: 600; white-space: nowrap; overflow: hidden; }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--muted); margin-top: 4px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+.subhead { font-size: 13px; font-weight: 600; margin: 16px 0 8px; }
+.insight { margin-top: 12px; font-size: 13px; background: var(--group-bg); border-radius: 8px; padding: 8px 10px; }
+.timeline svg { width: 100%; height: 150px; display: block; }
+.groups { display: grid; gap: 12px; }
+.group { border: 1px solid var(--border); border-left: 4px solid var(--group); border-radius: 10px; padding: 12px 14px; cursor: pointer; background: var(--surface); }
+.group.down { border-left-color: var(--none); }
+.group.active { background: var(--group-bg); }
+.group-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.group-top b { font-size: 14px; }
+.conf { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--group-bg); color: var(--group); white-space: nowrap; }
+.group.down .conf { background: var(--surface-2); color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.chip { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); color: var(--text); }
+.defense { font-size: 13px; color: var(--muted); border-top: 1px dashed var(--border); padding-top: 8px; }
+.defense b { color: var(--text); }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.filters button { border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+.filters button.on { background: var(--text); color: var(--surface); border-color: var(--text); }
+.filters button .n { color: var(--muted); margin-left: 4px; }
+.filters button.on .n { color: inherit; opacity: .7; }
+.comment { border-top: 1px solid var(--border); padding: 12px 0; }
+.comment:first-child { border-top: 0; }
+.c-meta { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 8px; }
+.c-text { margin: 4px 0 6px; }
+.c-text mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2px; }
+.tag { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 5px; border: 1px solid currentColor; }
+.t-neutral { color: var(--neutral); }
+.t-opinion { color: var(--opinion); }
+.t-biased { color: var(--biased); background: var(--biased-bg); }
+.t-favor { color: var(--favor); }
+.t-against { color: var(--against); }
+.t-none { color: var(--none); }
+.t-group { color: var(--group); background: var(--group-bg); }
+.t-sarc { color: var(--warn-text); background: var(--warn-bg); }
+.c-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.empty { color: var(--muted); font-size: 14px; padding: 12px 0; }
+footer { font-size: 12px; color: var(--muted); text-align: center; margin-top: 8px; }
+@media (max-width: 760px) {
+  .tiles { grid-template-columns: repeat(2, 1fr); }
+  .grid2 { grid-template-columns: 1fr; }
+  .input-row { grid-template-columns: 1fr; }
+  .btn { width: 100%; }
+}
+</style>
+</head>
+<body>
+<div class="banner">原型示意：所有影片、帳號、留言和數字都是假資料。Prototype — all data is fictional.</div>
+<div class="wrap">
+  <header>
+    <div class="logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="M12 12 19 6"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg>
+      Comment Radar
+    </div>
+    <button class="theme-btn" id="themeBtn" type="button">Theme</button>
+  </header>
+
+  <section class="card">
+    <div class="input-row">
+      <div class="field">
+        <label for="url">YouTube video or Bluesky post URL</label>
+        <input id="url" value="https://www.youtube.com/watch?v=EXAMPLE0001">
+      </div>
+      <button class="btn" type="button" id="runBtn">Analyze</button>
+    </div>
+    <div class="target">
+      Stance target <b>the proposed federal minimum-wage increase</b>
+      <span style="color:var(--muted);font-size:13px">suggested from the video title · confirmed by user</span>
+    </div>
+    <div class="status" id="status"><span class="ok">Done</span> · 1,000 comments · 612 accounts · 1 min 48 s · cost $0.02</div>
+  </section>
+
+  <section class="tiles">
+    <div class="tile"><div class="v">31%</div><div class="l"><span class="d" style="background:var(--neutral)"></span>Neutral</div></div>
+    <div class="tile"><div class="v">46%</div><div class="l"><span class="d" style="background:var(--opinion)"></span>Normal opinion</div></div>
+    <div class="tile"><div class="v">23%</div><div class="l"><span class="d" style="background:var(--biased)"></span>Overly biased</div></div>
+    <div class="tile"><div class="v">2</div><div class="l"><span class="d" style="background:var(--group)"></span>Suspected groups</div></div>
+  </section>
+
+  <div class="grid2">
+    <section class="card">
+      <h2>Coordinated group vs organic commenters</h2>
+      <div class="subhead" style="margin-top:0">Stance toward the target</div>
+      <div id="stanceBars"></div>
+      <div class="legend">
+        <span><i style="background:var(--favor)"></i>Favor</span>
+        <span><i style="background:var(--against)"></i>Against</span>
+        <span><i style="background:var(--none)"></i>No stance</span>
+      </div>
+      <div class="subhead">Share of overly biased comments</div>
+      <div id="biasBars"></div>
+      <div class="insight">Group 1 is 100% against the bill, and 81% of its comments use loaded wording. Organic commenters are split, and 18% use loaded wording (χ² test, p &lt; 0.001).</div>
+    </section>
+
+    <section class="card timeline">
+      <h2>Comments per hour <small>Nov 19 – Nov 22</small></h2>
+      <svg id="tl" viewBox="0 0 480 150" preserveAspectRatio="none" role="img" aria-label="Comments per hour, burst on Nov 21 at 02:00"></svg>
+      <div class="legend">
+        <span><i style="background:var(--none)"></i>Organic</span>
+        <span><i style="background:var(--group)"></i>Group 1 posts</span>
+      </div>
+      <div class="insight" style="margin-top:10px">Burst: 47 near-identical comments between 02:10 and 02:16 on Nov 21, two days after upload. Not a premiere or livestream.</div>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>Suspected groups <small>click a group to filter the comments below</small></h2>
+    <div class="groups">
+      <div class="group" data-group="1">
+        <div class="group-top"><b>Group 1 · Template comments</b><span class="conf">High · 0.88</span></div>
+        <div class="chips">
+          <span class="chip">47 accounts</span>
+          <span class="chip">41 created within the same 9 days</span>
+          <span class="chip">posted within 6 minutes</span>
+          <span class="chip">text similarity 0.91</span>
+          <span class="chip">stance 100% against</span>
+        </div>
+        <div class="defense"><b>Defense:</b> Checked for a premiere, livestream, or a creator call to comment. None found. The evidence holds, so the confidence stays the same.</div>
+      </div>
+      <div class="group down" data-group="2">
+        <div class="group-top"><b>Group 2 · Reply chain</b><span class="conf">Downgraded · 0.74 → 0.52</span></div>
+        <div class="chips">
+          <span class="chip">9 accounts</span>
+          <span class="chip">reply to each other within 4 minutes</span>
+          <span class="chip">mixed stance</span>
+        </div>
+        <div class="defense"><b>Defense:</b> 5 of the 9 accounts have 3+ years of history and comment on unrelated channels. They are probably regular viewers who talk to each other, so the group was downgraded.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Comments <small>sample of 12 · loaded wording highlighted</small></h2>
+    <div class="filters" id="filters"></div>
+    <div id="list"></div>
+  </section>
+
+  <footer>Labels are Comment Radar's own analysis, not YouTube data. Comment Radar reports groups, not individuals, and never scores channels. Account IDs are masked.</footer>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var btn = document.getElementById('themeBtn');
+  try { var saved = localStorage.getItem('cr-theme'); if (saved) root.setAttribute('data-theme', saved); } catch (e) {}
+  btn.addEventListener('click', function () {
+    var cur = root.getAttribute('data-theme');
+    var dark = cur ? cur === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    var next = dark ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('cr-theme', next); } catch (e) {}
+  });
+
+  document.getElementById('runBtn').addEventListener('click', function () {
+    var s = document.getElementById('status');
+    var steps = ['Fetching comments…', 'Classifying 1,000 comments…', 'Scoring coordination…', 'Investigators and defense reviewing 2 groups…'];
+    var i = 0;
+    s.textContent = steps[0];
+    var t = setInterval(function () {
+      i++;
+      if (i < steps.length) { s.textContent = steps[i]; return; }
+      clearInterval(t);
+      s.innerHTML = '<span class="ok">Done</span> · 1,000 comments · 612 accounts · 1 min 48 s · cost $0.02';
+    }, 700);
+  });
+
+  function bar(label, note, parts) {
+    var html = '<div class="cmp-row"><div class="cmp-head"><b>' + label + '</b><span>' + note + '</span></div><div class="bar">';
+    parts.forEach(function (p) {
+      if (p[0] > 0) html += '<div style="width:' + p[0] + '%;background:' + p[1] + '">' + (p[0] >= 8 ? p[0] + '%' : '') + '</div>';
+    });
+    return html + '</div></div>';
+  }
+  document.getElementById('stanceBars').innerHTML =
+    bar('Organic', '565 accounts', [[38, 'var(--favor)'], [41, 'var(--against)'], [21, 'var(--none)']]) +
+    bar('Group 1', '47 accounts', [[0, 'var(--favor)'], [100, 'var(--against)'], [0, 'var(--none)']]);
+  document.getElementById('biasBars').innerHTML =
+    bar('Organic', '', [[18, 'var(--biased)']]) +
+    bar('Group 1', '', [[81, 'var(--biased)']]);
+
+  // timeline: 72 hourly bins
+  var svg = document.getElementById('tl');
+  var organic = [], group = [];
+  for (var h = 0; h < 72; h++) {
+    var base = h < 6 ? 30 - h * 3 : 6 + Math.round(5 * Math.abs(Math.sin(h / 3.2)));
+    organic.push(base);
+    group.push(h === 50 ? 47 : 0);
+  }
+  var max = 60, W = 480, H = 130, bw = W / 72;
+  var s = '';
+  for (var y = 0; y <= 60; y += 30) {
+    var yy = H - (y / max) * (H - 10);
+    s += '<line x1="0" x2="' + W + '" y1="' + yy + '" y2="' + yy + '" stroke="var(--border)" stroke-width="1"/>';
+  }
+  for (h = 0; h < 72; h++) {
+    var oh = (organic[h] / max) * (H - 10), gh = (group[h] / max) * (H - 10);
+    var x = h * bw + 0.6;
+    s += '<rect x="' + x + '" y="' + (H - oh) + '" width="' + (bw - 1.2) + '" height="' + oh + '" fill="var(--none)" opacity=".7"/>';
+    if (gh) s += '<rect x="' + x + '" y="' + (H - oh - gh) + '" width="' + (bw - 1.2) + '" height="' + gh + '" fill="var(--group)"/>';
+  }
+  ['Nov 19', 'Nov 20', 'Nov 21', 'Nov 22'].forEach(function (d, i) {
+    s += '<text x="' + (i * 24 * bw + 2) + '" y="146" font-size="10" fill="var(--muted)">' + d + '</text>';
+  });
+  svg.innerHTML = s;
+
+  // comments
+  var C = [
+    { id: 'acct_••3a', t: 'Nov 19 14:02', cat: 'neutral', stance: 'none', text: 'The bill raises the federal minimum to $15 over five years, according to the summary at 3:10.' },
+    { id: 'acct_••91', t: 'Nov 19 14:20', cat: 'opinion', stance: 'against', text: 'Small restaurants in my town already run on thin margins. I worry this will mean fewer hours for staff.' },
+    { id: 'acct_••e7', t: 'Nov 19 15:41', cat: 'opinion', stance: 'favor', text: 'Nobody working full time should need two jobs to pay rent. I support this.' },
+    { id: 'acct_••0c', t: 'Nov 19 18:05', cat: 'biased', stance: 'against', text: 'Only [[clueless career politicians]] would push this [[job-killing disaster]].' },
+    { id: 'acct_••5d', t: 'Nov 20 09:12', cat: 'biased', stance: 'favor', text: 'Anyone against this is a [[greedy corporate bootlicker]].' },
+    { id: 'acct_••b2', t: 'Nov 20 11:30', cat: 'neutral', stance: 'none', text: 'Does the phase-in apply to tipped workers too?' },
+    { id: 'acct_••48', t: 'Nov 20 16:44', cat: 'opinion', stance: 'against', sarc: true, text: 'Great job Congress, another brilliant idea. Can’t wait for the $30 burger.' },
+    { id: 'acct_••a1', t: 'Nov 21 02:10', cat: 'biased', stance: 'against', group: 1, text: 'This wage hike is a [[DISASTER]] for small business. [[Radical politicians]] want to [[destroy Main Street]]. Share this!' },
+    { id: 'acct_••c6', t: 'Nov 21 02:11', cat: 'biased', stance: 'against', group: 1, text: 'This wage hike is a [[disaster]] for small businesses. [[Radical politicians]] want to [[destroy main street]]. share!!' },
+    { id: 'acct_••2f', t: 'Nov 21 02:13', cat: 'biased', stance: 'against', group: 1, text: 'This wage hike is a [[DISASTER]] for small business — [[radical politicians]] want to [[destroy Main Street]]. Share this' },
+    { id: 'acct_••7b', t: 'Nov 21 02:15', cat: 'opinion', stance: 'against', group: 1, text: 'This wage hike is bad for small business. Share this with your friends.' },
+    { id: 'acct_••d9', t: 'Nov 21 19:02', cat: 'opinion', stance: 'none', group: 2, text: 'Same thing we were saying in last week’s thread, good to see it covered.' }
+  ];
+  var CAT = { neutral: ['Neutral', 't-neutral'], opinion: ['Normal opinion', 't-opinion'], biased: ['Overly biased', 't-biased'] };
+  var ST = { favor: ['Favor', 't-favor'], against: ['Against', 't-against'], none: ['No stance', 't-none'] };
+  var FILTERS = [
+    ['all', 'All', function () { return true; }],
+    ['neutral', 'Neutral', function (c) { return c.cat === 'neutral'; }],
+    ['opinion', 'Normal opinion', function (c) { return c.cat === 'opinion'; }],
+    ['biased', 'Overly biased', function (c) { return c.cat === 'biased'; }],
+    ['g1', 'Group 1', function (c) { return c.group === 1; }],
+    ['g2', 'Group 2', function (c) { return c.group === 2; }],
+    ['sarc', 'Possible sarcasm', function (c) { return c.sarc; }]
+  ];
+  var current = 'all';
+  function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+  function render() {
+    var f = FILTERS.filter(function (x) { return x[0] === current; })[0][2];
+    document.getElementById('filters').innerHTML = FILTERS.map(function (x) {
+      var n = C.filter(x[2]).length;
+      return '<button type="button" data-f="' + x[0] + '" class="' + (x[0] === current ? 'on' : '') + '">' + x[1] + '<span class="n">' + n + '</span></button>';
+    }).join('');
+    var rows = C.filter(f).map(function (c) {
+      var text = esc(c.text).replace(/\[\[(.+?)\]\]/g, '<mark>$1</mark>');
+      var tags = '<span class="tag ' + CAT[c.cat][1] + '">' + CAT[c.cat][0] + '</span>' +
+        '<span class="tag ' + ST[c.stance][1] + '">' + ST[c.stance][0] + '</span>';
+      if (c.sarc) tags += '<span class="tag t-sarc">Possible sarcasm · low confidence · re-checked by LLM</span>';
+      if (c.group) tags += '<span class="tag t-group">Group ' + c.group + '</span>';
+      return '<div class="comment"><div class="c-meta"><span>' + c.id + '</span><span>' + c.t + ' UTC</span></div>' +
+        '<div class="c-text">' + text + '</div><div class="c-tags">' + tags + '</div></div>';
+    });
+    document.getElementById('list').innerHTML = rows.length ? rows.join('') : '<div class="empty">No comments match.</div>';
+    document.querySelectorAll('.group').forEach(function (g) {
+      g.classList.toggle('active', current === 'g' + g.dataset.group);
+    });
+  }
+  document.getElementById('filters').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    current = b.dataset.f; render();
+  });
+  document.querySelectorAll('.group').forEach(function (g) {
+    g.addEventListener('click', function () {
+      var k = 'g' + g.dataset.group;
+      current = current === k ? 'all' : k; render();
+      document.getElementById('list').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+  });
+  render();
+})();
+</script>
+</body>
+</html>

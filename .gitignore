@@ -1,0 +1,16 @@
+# Local secrets. Commit .env.example instead.
+.env
+
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+.hf/
+
+# Fetched YouTube data: must be refreshed or deleted within 30 days, so it never goes in git
+data/cache/
+data/raw/
+
+# Logs and run records (agent/logs.py)
+logs/
