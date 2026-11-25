@@ -1,8 +1,12 @@
 """YouTube Data API v3: one video, its comments, and the channels of the people who wrote them.
 
 Read-only, with an API key (YOUTUBE_API_KEY). Every list call costs 1 quota unit of the project's
-10,000 a day. A 1,000-comment video costs about 50: ~10 pages of comment threads, up to
-MAX_REPLY_FETCHES reply pages, and one channels call per 50 commenters.
+10,000 a day: one per 100 threads, one per 100 replies of a thread with more than YouTube sends inline,
+and one per 50 commenters. A 3,500-comment video costs about 120.
+
+The unit of reading is the reply thread: a top-level comment and every reply under it. Threads are read
+whole, newest first, until the next one would pass max_comments. A thread is never cut, because a ring
+that baits people in the replies is only visible with all of its replies.
 """
 
 from __future__ import annotations
@@ -16,9 +20,7 @@ import httpx
 
 API = "https://www.googleapis.com/youtube/v3"
 VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
-# Threads whose replies don't all come with the thread. Reply chains are where promotion rings live,
-# so the busiest ones get their full replies, up to this many.
-MAX_REPLY_FETCHES = 20
+REPLY_FETCH_CONCURRENCY = 8
 
 
 class YouTubeError(Exception):
@@ -85,8 +87,17 @@ def _comment(item: dict, thread_id: str, parent_id: str | None) -> dict:
     }
 
 
+def iso_seconds(value: str | None) -> int | None:
+    """ISO 8601 duration ("PT1H2M3S", "P1DT2H") to seconds."""
+    m = re.fullmatch(r"P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?", value or "")
+    if not m or not value or value == "P":
+        return None
+    d, h, mi, s = (int(x or 0) for x in m.groups())
+    return ((d * 24 + h) * 60 + mi) * 60 + s
+
+
 async def fetch_video(client: httpx.AsyncClient, video_id: str) -> dict:
-    data = await _get(client, "videos", part="snippet,statistics,liveStreamingDetails", id=video_id)
+    data = await _get(client, "videos", part="snippet,statistics,liveStreamingDetails,contentDetails", id=video_id)
     if not data.get("items"):
         raise YouTubeError("That video doesn't exist or isn't public.")
     item = data["items"][0]
@@ -96,6 +107,8 @@ async def fetch_video(client: httpx.AsyncClient, video_id: str) -> dict:
         "id": video_id,
         "url": f"https://www.youtube.com/watch?v={video_id}",
         "title": s.get("title", ""),
+        "description": (s.get("description") or "")[:2000],
+        "duration_seconds": iso_seconds((item.get("contentDetails") or {}).get("duration")),
         "channel_id": s.get("channelId"),
         "channel_title": s.get("channelTitle", ""),
         "published_at": s.get("publishedAt"),
@@ -108,40 +121,70 @@ async def fetch_video(client: httpx.AsyncClient, video_id: str) -> dict:
     }
 
 
-async def fetch_comments(client: httpx.AsyncClient, video_id: str, max_comments: int) -> list[dict]:
-    """The newest comments and replies, up to max_comments in all."""
-    comments: list[dict] = []
-    partial: list[tuple[int, str]] = []  # (missing replies, thread id)
-    page_token = None
-    while len(comments) < max_comments:
+async def fetch_comments(client: httpx.AsyncClient, video_id: str, max_comments: int) -> tuple[list[dict], dict]:
+    """Whole reply threads, newest first, up to max_comments comments in all.
+
+    Returns (comments, coverage). coverage says how much of the section was read: threads read, whether
+    that is every thread, and replies read against the replies YouTube counts for those threads.
+    """
+    threads: list[dict] = []
+    size = 0  # comments in the threads taken so far, counting every reply
+    complete, page_token = False, None
+    while True:
         params = {"part": "snippet,replies", "videoId": video_id, "maxResults": 100, "order": "time",
                   "textFormat": "plainText"}
         if page_token:
             params["pageToken"] = page_token
         data = await _get(client, "commentThreads", **params)
+        full = False
         for thread in data.get("items", []):
-            top = thread["snippet"]["topLevelComment"]
-            comments.append(_comment(top, thread["id"], None))
-            replies = (thread.get("replies") or {}).get("comments", [])
-            comments += [_comment(r, thread["id"], thread["id"]) for r in replies]
-            missing = thread["snippet"].get("totalReplyCount", 0) - len(replies)
-            if missing > 0:
-                partial.append((missing, thread["id"]))
+            n = 1 + thread["snippet"].get("totalReplyCount", 0)
+            if threads and size + n > max_comments:
+                full = True
+                break
+            threads.append(thread)
+            size += n
         page_token = data.get("nextPageToken")
-        if not page_token:
+        if not page_token and not full:
+            complete = True
+        if full or not page_token:
             break
 
-    partial.sort(reverse=True)
-    full = await asyncio.gather(*(fetch_replies(client, tid) for _, tid in partial[:MAX_REPLY_FETCHES]))
-    have = {c["id"] for c in comments}
-    for replies in full:
-        comments += [r for r in replies if r["id"] not in have]
-    return comments[:max_comments]
+    comments: list[dict] = []
+    partial: list[dict] = []  # threads whose replies didn't all come inline (YouTube sends up to 5)
+    for thread in threads:
+        comments.append(_comment(thread["snippet"]["topLevelComment"], thread["id"], None))
+        replies = (thread.get("replies") or {}).get("comments", [])
+        if thread["snippet"].get("totalReplyCount", 0) > len(replies):
+            partial.append(thread)
+        else:
+            comments += [_comment(r, thread["id"], thread["id"]) for r in replies]
+
+    gate = asyncio.Semaphore(REPLY_FETCH_CONCURRENCY)
+
+    async def replies_of(thread: dict) -> list[dict]:
+        pages = -(-thread["snippet"]["totalReplyCount"] // 100)
+        async with gate:
+            return await fetch_replies(client, thread["id"], max_pages=pages)
+
+    for replies in await asyncio.gather(*(replies_of(t) for t in partial)):
+        comments += replies
+
+    expected = sum(t["snippet"].get("totalReplyCount", 0) for t in threads)
+    coverage = {
+        "threads": len(threads),
+        "all_threads": complete,
+        "replies": sum(1 for c in comments if c["parent_id"]),
+        "replies_expected": expected,
+        "max_comments": max_comments,
+    }
+    return comments, coverage
 
 
-async def fetch_replies(client: httpx.AsyncClient, thread_id: str, max_pages: int = 2) -> list[dict]:
+async def fetch_replies(client: httpx.AsyncClient, thread_id: str, max_pages: int = 1) -> list[dict]:
+    """Every reply in one thread, 100 per page."""
     out, page_token = [], None
-    for _ in range(max_pages):
+    for _ in range(max(1, max_pages)):
         params = {"part": "snippet", "parentId": thread_id, "maxResults": 100, "textFormat": "plainText"}
         if page_token:
             params["pageToken"] = page_token
@@ -179,6 +222,6 @@ async def fetch_thread(video_id: str, max_comments: int) -> dict:
     """Everything the radar needs about one video, in one go."""
     async with httpx.AsyncClient(timeout=30) as client:
         video = await fetch_video(client, video_id)
-        comments = await fetch_comments(client, video_id, max_comments)
+        comments, coverage = await fetch_comments(client, video_id, max_comments)
         accounts = await fetch_channels(client, [c["author_id"] for c in comments])
-    return {"video": video, "comments": comments, "accounts": accounts}
+    return {"video": video, "comments": comments, "accounts": accounts, "coverage": coverage}

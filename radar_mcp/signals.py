@@ -4,9 +4,16 @@ Pure functions over the fetched data, no network and no model calls, so they're 
 
     1. Link two accounts when there is direct evidence they act together:
          similar_text  their comments are near-copies (character n-gram cosine >= TEXT_SIMILARITY)
-         reply_chain   both replied in the same thread within REPLY_WINDOW, and both accounts were young
+         reply_chain   young accounts replying in one thread within REPLY_WINDOW, in a stretch of replies with
+                       more young accounts than chance allows (binomial test against the section's young-comment
+                       rate, p < REPLY_P_VALUE)
     2. Accounts joined by links form a candidate group (connected components, at least MIN_GROUP accounts).
-    3. Each group gets features and a score from `score_group`.
+    3. Opinion steering, when comments carry stance labels (which side of the video's subject they take):
+       one stance per account, new accounts against established ones. A stance new accounts take far more
+       often (Fisher's exact test, Bonferroni-corrected p < STANCE_P_VALUE, at least MIN_STANCE_LIFT times as
+       often) is "pushed". New accounts pushing it, outside other groups, that also act together (created within
+       STEER_CREATED_WINDOW of each other, or first posting within STEER_POST_WINDOW) form a steering group.
+    4. Each group gets features and a score from `score_group`.
 
 `score_group` is a hand-weighted baseline. It is the seam for a trained model: keep its input
 (the features dict) and output (score from 0 to 1, plus the signals that drove it) and the rest
@@ -23,16 +30,31 @@ import re
 from collections import Counter, defaultdict
 
 import numpy as np
+from scipy.stats import binom, fisher_exact
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 TEXT_SIMILARITY = 0.80  # near-copies score above this; ordinary comments on one topic rarely do
 MIN_TEXT_CHARS = 20  # "nice video" is identical across thousands of real people
 REPLY_WINDOW = dt.timedelta(minutes=60)
+# A busy thread of real viewers holds young accounts at the section's usual rate: a 500-reply thread at 4%
+# has about 20. Linking all of them would make a group of strangers. Only a stretch of consecutive replies
+# with more young accounts than chance allows is linked. Many stretches are tested, hence the strict p.
+REPLY_P_VALUE = 0.001
+MIN_YOUNG_RATE = 0.01  # floor for the section's rate, so one young account in a young-free section isn't "impossible"
 YOUNG_DAYS = 180  # an account this new when it commented
 CREATED_WINDOW_DAYS = 14
 BURST_WINDOW = dt.timedelta(minutes=60)
 MIN_GROUP = 3
 MAX_GROUPS = 10
+STANCE_P_VALUE = 0.01
+MIN_STANCE_LIFT = 1.5
+# A pushed side shows a lean among new accounts; a steering group needs more: accounts that act together.
+STEER_CREATED_WINDOW = dt.timedelta(days=1)
+STEER_POST_WINDOW = dt.timedelta(minutes=15)
+# Stance labels besides the video's sides (S1, S2, ...). Only sides and off_topic are tested for steering:
+# neutral isn't a position, and promotion is what the reply-chain and near-copy signals already catch.
+OTHER_STANCES = ("off_topic", "promotion", "neutral")
+TESTED_OTHER = ("off_topic",)
 
 # The baseline score: each feature is a share from 0 to 1, weighted by how much it says on its own.
 WEIGHTS = {
@@ -42,6 +64,7 @@ WEIGHTS = {
     "created_cluster": 0.15,
     "same_thread_share": 0.10,
     "sentiment_uniformity": 0.05,
+    "stance_push": 0.25,
 }
 
 
@@ -121,15 +144,69 @@ def describe(signal: dict, features: dict) -> str:
         "created_cluster": f"{v:.0%} of the accounts were created within the same {CREATED_WINDOW_DAYS} days",
         "same_thread_share": f"{v:.0%} of their comments are in one reply thread",
         "sentiment_uniformity": f"{v:.0%} of their comments share one sentiment ({features.get('main_sentiment')})",
+        "stance_push": f"{v:.0%} of their labelled comments take a side that new accounts push here",
     }[signal["name"]]
 
 
-def find_groups(video: dict, comments: list[dict], accounts: dict[str, dict], sentiments: dict[str, str]) -> dict:
+def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """95% confidence interval for a share k/n."""
+    if not n:
+        return 0.0, 0.0
+    p = k / n
+    centre, half = (p + z * z / (2 * n)) / (1 + z * z / n), z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5) / (1 + z * z / n)
+    return round(max(0.0, centre - half), 3), round(min(1.0, centre + half), 3)
+
+
+def stance_comparison(comments: list[dict], accounts: dict[str, dict], stances: dict[str, str],
+                      sides: list[dict]) -> dict:
+    """Which side new accounts take, against established accounts. The unit is the account: each gets the
+    stance most of its labelled comments take. New accounts are labelled in full; established accounts are a
+    random sample, so their shares carry a confidence interval."""
+    times = {c["id"]: parse_time(c.get("published_at")) for c in comments}
+    by_author: dict[str, list[dict]] = defaultdict(list)
+    for c in comments:
+        if c["id"] in stances:
+            by_author[c["author_id"]].append(c)
+    stance_of, young = {}, {}
+    for a, cs in by_author.items():
+        stance_of[a] = Counter(stances[c["id"]] for c in cs).most_common(1)[0][0]
+        first = min((times[c["id"]] for c in cs if times[c["id"]]), default=None)
+        young[a] = is_young(accounts.get(a), first)
+    new = [a for a in stance_of if young[a]]
+    old = [a for a in stance_of if not young[a]]
+    keys = [s["id"] for s in sides] + list(OTHER_STANCES)
+    tested = [s["id"] for s in sides] + list(TESTED_OTHER)
+    rows = []
+    for key in keys:
+        k1, k0 = sum(stance_of[a] == key for a in new), sum(stance_of[a] == key for a in old)
+        n1, n0 = len(new), len(old)
+        row = {"stance": key, "label": next((s["label"] for s in sides if s["id"] == key), key.replace("_", " ")),
+               "new": {"accounts": k1, "of": n1, "share": round(k1 / n1, 3) if n1 else 0.0, "ci": wilson(k1, n1)},
+               "established": {"accounts": k0, "of": n0, "share": round(k0 / n0, 3) if n0 else 0.0, "ci": wilson(k0, n0)},
+               "tested": key in tested, "lift": None, "p_value": None, "pushed": False}
+        if key in tested and n1 and n0:
+            p1, p0 = k1 / n1, k0 / n0
+            row["lift"] = round(p1 / p0, 2) if p0 else None
+            p = fisher_exact([[k1, n1 - k1], [k0, n0 - k0]], alternative="greater")[1]
+            row["p_value"] = float(min(1.0, p * len(tested)))  # Bonferroni over the stances tested
+            row["pushed"] = bool(row["p_value"] < STANCE_P_VALUE and k1 >= MIN_GROUP
+                                 and (p0 == 0 or p1 / p0 >= MIN_STANCE_LIFT))
+        rows.append(row)
+    return {"unit": "accounts", "new_accounts": len(new), "established_accounts": len(old), "rows": rows,
+            "pushed": [r["stance"] for r in rows if r["pushed"]], "young_days": YOUNG_DAYS,
+            "p_threshold": STANCE_P_VALUE, "min_lift": MIN_STANCE_LIFT,
+            "_pushers": {r["stance"]: [a for a in new if stance_of[a] == r["stance"]] for r in rows if r["pushed"]}}
+
+
+def find_groups(video: dict, comments: list[dict], accounts: dict[str, dict], sentiments: dict[str, str],
+                stances: dict[str, str] | None = None, sides: list[dict] | None = None) -> dict:
     """Candidate groups, the thread's baseline rates, a timeline and sentiment by group membership.
 
     video: fetch_video's dict. comments: fetch_comments' dicts. accounts: channel id -> fetch_channels' dict.
-    sentiments: comment id -> label.
+    sentiments: comment id -> label. stances: comment id -> stance label (S1.., off_topic, promotion, neutral),
+    for the comments that were labelled; sides: the video's sides, [{"id": "S1", "label": ...}].
     """
+    stances = stances or {}
     creator = video.get("channel_id")
     comments = [c for c in comments if c.get("author_id") and c["author_id"] != creator]
     times = {c["id"]: parse_time(c.get("published_at")) for c in comments}
@@ -155,27 +232,54 @@ def find_groups(video: dict, comments: list[dict], accounts: dict[str, dict], se
             if r < c and v >= TEXT_SIMILARITY:
                 link(comments[long_ix[r]]["author_id"], comments[long_ix[c]]["author_id"], "similar_text")
 
-    # 1b. Young accounts replying together in one thread
+    # 1b. Young accounts crowding one reply thread
+    young_of = {c["id"]: is_young(accounts.get(c["author_id"]), times[c["id"]]) for c in comments}
+    young_rate = max(MIN_YOUNG_RATE, sum(young_of.values()) / len(comments)) if comments else MIN_YOUNG_RATE
     by_thread: dict[str, list[dict]] = defaultdict(list)
     for c in comments:
-        by_thread[c["thread_id"]].append(c)
+        if times[c["id"]]:
+            by_thread[c["thread_id"]].append(c)
     for thread in by_thread.values():
-        young = [c for c in thread if is_young(accounts.get(c["author_id"]), times[c["id"]])]
-        for i, a in enumerate(young):
-            for b in young[i + 1:]:
-                ta, tb = times[a["id"]], times[b["id"]]
-                if ta and tb and abs(ta - tb) <= REPLY_WINDOW:
-                    link(a["author_id"], b["author_id"], "reply_chain")
+        thread.sort(key=lambda c: times[c["id"]])
+        young = [i for i, c in enumerate(thread) if young_of[c["id"]]]  # positions in the thread
+        for x, i in enumerate(young):
+            for y in range(x + 1, len(young)):
+                j = young[y]
+                if times[thread[j]["id"]] - times[thread[i]["id"]] > REPLY_WINDOW:
+                    break
+                # The stretch from reply i to reply j: j - i + 1 comments, y - x + 1 of them young.
+                # P(at least that many young, if each comment is young at the section's rate)
+                if binom.sf(y - x, j - i + 1, young_rate) < REPLY_P_VALUE:
+                    for k in young[x + 1:y + 1]:
+                        link(thread[i]["author_id"], thread[k]["author_id"], "reply_chain")
 
-    # 2-3. Groups and their features
+    # 3. Stances new accounts push
+    stance = stance_comparison(comments, accounts, stances, sides or []) if stances else None
+    pushed = set(stance["pushed"]) if stance else set()
+
+    # 2-4. Groups and their features
     by_author: dict[str, list[dict]] = defaultdict(list)
     for c in comments:
         by_author[c["author_id"]].append(c)
+    components = [(m, None) for m in links.components() if len(m) >= MIN_GROUP]
+    linked = {a for m, _ in components for a in m}
+    for key, pushers in (stance or {}).get("_pushers", {}).items():
+        free = [a for a in pushers if a not in linked]
+        first_post = {a: min((times[c["id"]] for c in comments if c["author_id"] == a and stances.get(c["id"]) == key
+                              and times[c["id"]]), default=None) for a in free}
+        created = {a: parse_time((accounts.get(a) or {}).get("created_at")) for a in free}
+        together = _Groups()
+        for i, a in enumerate(free):
+            together.find(a)
+            for b in free[i + 1:]:
+                if ((created[a] and created[b] and abs(created[a] - created[b]) <= STEER_CREATED_WINDOW) or
+                        (first_post[a] and first_post[b] and abs(first_post[a] - first_post[b]) <= STEER_POST_WINDOW)):
+                    together.join(a, b)
+        components += [(members, key) for members in together.components() if len(members) >= MIN_GROUP]
     groups = []
-    for members in links.components():
-        if len(members) < MIN_GROUP:
-            continue
-        cs = sorted((c for m in members for c in by_author[m]), key=lambda c: c.get("published_at") or "")
+    for members, steering in components:
+        cs = sorted((c for m in members for c in by_author[m] if not steering or stances.get(c["id"]) == steering),
+                    key=lambda c: c.get("published_at") or "")
         ts = [times[c["id"]] for c in cs if times[c["id"]]]
         accs = [accounts.get(m) for m in members]
 
@@ -192,6 +296,7 @@ def find_groups(video: dict, comments: list[dict], accounts: dict[str, dict], se
         created = sorted(d for d in (parse_time((a or {}).get("created_at")) for a in accs) if d)
         created_cluster = densest_share(created, dt.timedelta(days=CREATED_WINDOW_DAYS)) * len(created) / len(members)
         labels = [sentiments.get(c["id"]) for c in cs if sentiments.get(c["id"])]
+        labelled = [c for c in cs if c["id"] in stances]
         main_sentiment, main_count = Counter(labels).most_common(1)[0] if labels else (None, 0)
         kinds = Counter()
         for pair, k in edge_kinds.items():
@@ -205,7 +310,9 @@ def find_groups(video: dict, comments: list[dict], accounts: dict[str, dict], se
             "created_cluster": round(created_cluster, 3),
             "same_thread_share": round(Counter(c["thread_id"] for c in cs).most_common(1)[0][1] / len(cs), 3),
             "sentiment_uniformity": round(main_count / len(labels), 3) if labels else 0.0,
+            "stance_push": round(sum(stances.get(c["id"]) in pushed for c in labelled) / len(labelled), 3) if labelled else 0.0,
             "main_sentiment": main_sentiment,
+            "steering_stance": steering,
             "no_upload_share": round(sum(1 for a in accs if a and a.get("video_count") == 0) / len(members), 3),
             "span_minutes": round((max(ts) - min(ts)).total_seconds() / 60, 1) if ts else None,
             "links": dict(kinds),
@@ -213,7 +320,8 @@ def find_groups(video: dict, comments: list[dict], accounts: dict[str, dict], se
         score, signals = score_group(features)
         for s in signals:
             s["text"] = describe(s, features)
-        pattern = ("reply_chain" if kinds["reply_chain"] > kinds["similar_text"] else
+        pattern = ("steering" if steering else
+                   "reply_chain" if kinds["reply_chain"] > kinds["similar_text"] else
                    "copy_paste" if kinds["similar_text"] else "mixed")
         groups.append({
             "accounts": sorted(mask(m) for m in members),
@@ -227,6 +335,7 @@ def find_groups(video: dict, comments: list[dict], accounts: dict[str, dict], se
             "features": features,
             "signals": signals,
             "sentiment": distribution_of(labels),
+            "stances": dict(Counter(stances[c["id"]] for c in labelled)),
         })
     groups.sort(key=lambda g: (g["score"], g["n_accounts"]), reverse=True)
     groups = groups[:MAX_GROUPS]
@@ -246,9 +355,12 @@ def find_groups(video: dict, comments: list[dict], accounts: dict[str, dict], se
         "reply_share": round(sum(1 for c in comments if c.get("parent_id")) / len(comments), 3) if comments else 0.0,
         "grouped_comment_share": round(len(grouped_ids) / len(comments), 3) if comments else 0.0,
     }
+    if stance:
+        stance.pop("_pushers")
     return {
         "groups": groups,
         "baseline": baseline,
+        "stance": stance,
         "timeline": timeline(comments, times, groups),
         "sentiment": {
             "all": distribution_of([sentiments.get(c["id"]) for c in comments if sentiments.get(c["id"])]),
@@ -257,8 +369,11 @@ def find_groups(video: dict, comments: list[dict], accounts: dict[str, dict], se
                                         if c["id"] not in grouped_ids and sentiments.get(c["id"])]),
         },
         "settings": {"text_similarity": TEXT_SIMILARITY, "min_text_chars": MIN_TEXT_CHARS,
-                     "reply_window_minutes": REPLY_WINDOW.total_seconds() / 60, "young_days": YOUNG_DAYS,
-                     "created_window_days": CREATED_WINDOW_DAYS, "min_group": MIN_GROUP, "weights": WEIGHTS},
+                     "reply_window_minutes": REPLY_WINDOW.total_seconds() / 60, "reply_p_value": REPLY_P_VALUE, "young_days": YOUNG_DAYS,
+                     "created_window_days": CREATED_WINDOW_DAYS, "min_group": MIN_GROUP, "weights": WEIGHTS,
+                     "stance_p_value": STANCE_P_VALUE, "min_stance_lift": MIN_STANCE_LIFT,
+                     "steer_created_window_hours": STEER_CREATED_WINDOW.total_seconds() / 3600,
+                     "steer_post_window_minutes": STEER_POST_WINDOW.total_seconds() / 60},
     }
 
 

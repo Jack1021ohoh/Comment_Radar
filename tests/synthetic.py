@@ -108,3 +108,19 @@ def thread(*parts: tuple[list[dict], dict[str, dict]]) -> dict:
     return {"thread_id": "youtube:abcdefghijk", "platform": "youtube",
             "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(), "video": dict(VIDEO),
             "comments": comments, "accounts": accounts}
+
+
+def steering_wave(n: int = 15, start: dt.datetime | None = None, seed: int = 7) -> tuple[list[dict], dict[str, dict]]:
+    """New accounts that all push one side ("corrupt"), each in their own words, as top-level comments two minutes apart."""
+    rng = random.Random(seed)
+    start = start or T0 + dt.timedelta(hours=10)
+    comments, accounts = [], {}
+    for i in range(n):
+        aid = f"UC_wave_{i}"
+        accounts[aid] = {"id": aid, "created_at": _iso(start - dt.timedelta(days=rng.randint(5, 40))), "subscriber_count": 0,
+                         "video_count": 0, "view_count": 0, "country": None}
+        cid = f"wave{i}"
+        comments.append({"id": cid, "thread_id": cid, "parent_id": None, "author_id": aid, "author_name": "x",
+                         "text": " ".join(rng.sample(VOCAB, 8)) + " this is corrupt " + " ".join(rng.sample(VOCAB, 4)),
+                         "published_at": _iso(start + dt.timedelta(minutes=2 * i)), "like_count": 0})
+    return comments, accounts
