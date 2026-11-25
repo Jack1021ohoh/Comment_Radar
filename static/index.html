@@ -5,93 +5,156 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Comment Radar</title>
     <meta name="description" content="Paste a YouTube link. Comment Radar finds groups of accounts that act together in its comments, with the evidence." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/static/styles.css" />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b5bdb' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Ccircle cx='12' cy='12' r='5'/%3E%3Cpath d='M12 12 19 6'/%3E%3C/svg%3E" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23f4f1ea' stroke='%2318170f' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='8' fill='none' stroke='%2318170f' stroke-width='1.5'/%3E%3Cpath d='M16 16 26 6' stroke='%23d1251b' stroke-width='2.5'/%3E%3C/svg%3E" />
 </head>
 <body>
-    <header class="topbar">
-        <a class="brand" href="/">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><path d="M12 12 19 6" /><circle cx="12" cy="12" r="1.5" fill="currentColor" /></svg>
-            <div><b>Comment Radar</b><span>Who's really in the comments?</span></div>
+    <header class="masthead">
+        <a class="wordmark" href="/">
+            <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" /><circle cx="16" cy="16" r="7" /><path class="hand" d="M16 16 25.5 6.5" /></svg>
+            <span>Comment Radar</span>
         </a>
-        <div class="spacer"></div>
-        <button class="icon-btn" id="btn-theme" type="button" title="Toggle theme" aria-label="Toggle theme">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" /></svg>
+        <nav class="stepnav hidden" id="stepnav" aria-label="Report sections">
+            <a href="#s-verdict"><i>1</i>Verdict</a>
+            <a href="#s-sides"><i>2</i>Sides</a>
+            <a href="#s-groups"><i>3</i>Groups</a>
+            <a href="#s-scope"><i>4</i>Accounts</a>
+            <a href="#s-tone"><i>5</i>Tone</a>
+            <a href="#s-timing"><i>6</i>Timing</a>
+            <a href="#s-ask"><i>7</i>Ask</a>
+        </nav>
+        <button class="theme" id="btn-theme" type="button" title="Switch light or dark" aria-label="Switch light or dark">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8" /><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" /></svg>
         </button>
     </header>
 
     <main>
-        <section class="hero">
-            <div class="hero-copy">
-                <h1>Find the accounts that act <em>together</em>.</h1>
-                <p>Paste a YouTube video. Comment Radar reads its comments and the commenters' public profiles, finds groups of accounts that move as one,
-                    and has an Investigator and a Defense argue each case before it reports. It flags groups with evidence, never single people.</p>
-                <dl class="facts">
-                    <div><dt>For</dt><dd>Journalists and fact-checkers who need to know whether a comment section's "public opinion" is real.</dd></div>
-                    <div><dt>Looks at</dt><dd>Near-copy comments, bursts, young accounts replying together, accounts created in the same weeks, and sentiment.</dd></div>
-                    <div><dt>Can't</dt><dd>See IP addresses or private data, read other platforms yet, or prove who runs an account.</dd></div>
-                </dl>
+        <!-- Landing -->
+        <section class="hero" id="hero">
+            <div class="hero-text">
+                <p class="kicker">For journalists and fact-checkers</p>
+                <h1>Is this comment section <mark>real</mark>?</h1>
+                <p class="lede">Paste a YouTube video. Comment Radar watches it, reads every comment, and checks whether new, fake-looking accounts push one side of the story or act together, then tests each case for an innocent explanation.</p>
+                <form class="scan" id="ask">
+                    <label class="sr-only" for="url">YouTube video link</label>
+                    <input id="url" type="url" inputmode="url" placeholder="Paste a YouTube video link" required autocomplete="off" spellcheck="false" />
+                    <button id="run" type="submit">Scan comments</button>
+                </form>
+                <label class="fresh"><input type="checkbox" id="fresh" /> Fetch the comments again instead of using the saved copy</label>
+                <div class="examples hidden" id="examples"></div>
+                <ol class="how">
+                    <li><b>Watch</b><span>What the video says, and the sides people take on it.</span></li>
+                    <li><b>Compare</b><span>Which side new accounts take, against established commenters.</span></li>
+                    <li><b>Test</b><span>An Investigator makes the case; a Defense tries to explain it away.</span></li>
+                </ol>
             </div>
-            <form class="card composer" id="ask">
-                <label class="eyebrow" for="url">YouTube video link</label>
-                <input id="url" type="url" inputmode="url" placeholder="https://www.youtube.com/watch?v=..." required autocomplete="off" />
-                <div class="row">
-                    <button class="btn" id="run" type="submit">Analyze</button>
-                    <label class="check"><input type="checkbox" id="fresh" /> Fetch again</label>
-                </div>
-                <div id="examples-wrap" class="hidden">
-                    <div class="eyebrow">Try one</div>
-                    <div class="examples" id="examples"></div>
-                </div>
-            </form>
+            <figure class="scope-wrap" aria-hidden="true">
+                <svg class="scope" id="scope" viewBox="-110 -110 220 220">
+                    <defs>
+                        <radialGradient id="sweep-fade" cx="0" cy="0" r="1"><stop offset="0" stop-color="var(--sweep)" stop-opacity="0" /><stop offset="1" stop-color="var(--sweep)" stop-opacity=".35" /></radialGradient>
+                    </defs>
+                    <circle r="100" class="ring outer" /><circle r="75" class="ring" /><circle r="50" class="ring" /><circle r="25" class="ring" />
+                    <path d="M-100 0H100M0-100V100" class="cross" />
+                    <g id="ticks"></g>
+                    <g class="sweep"><path d="M0 0 L0 -100 A100 100 0 0 1 38 -92.5 Z" fill="url(#sweep-fade)" /><path d="M0 0 L38 -92.5" class="beam" /></g>
+                    <g id="blips"></g>
+                </svg>
+                <figcaption id="scope-caption">Standing by</figcaption>
+            </figure>
         </section>
 
-        <div class="card error-card hidden" id="error" role="alert"></div>
+        <div class="alert hidden" id="error" role="alert"></div>
 
-        <section class="card status hidden" id="status" aria-live="polite">
-            <div class="status-head">
-                <b id="status-title">Analyzing…</b>
-                <span class="muted" id="elapsed">0s</span>
+        <!-- Live run -->
+        <section class="run hidden" id="status" aria-live="polite">
+            <div class="run-head">
+                <span class="live">Scanning</span>
+                <b id="status-title">Reading the comments…</b>
+                <span class="clock" id="elapsed">0:00</span>
             </div>
             <ol class="steps" id="steps">
-                <li data-step="fetch"><b>Fetch</b><span>Comments and profiles</span></li>
-                <li data-step="sentiment"><b>Sentiment</b><span>ML model, every comment</span></li>
-                <li data-step="signals"><b>Signals</b><span>Candidate groups</span></li>
-                <li data-step="investigate"><b>Investigate</b><span>Investigator vs Defense</span></li>
-                <li data-step="report"><b>Report</b><span>Verdict and summary</span></li>
+                <li data-step="fetch">Fetch comments</li>
+                <li data-step="watch">Watch the video</li>
+                <li data-step="stance">Read stances</li>
+                <li data-step="sentiment">Read tone</li>
+                <li data-step="signals">Find groups</li>
+                <li data-step="investigate">Investigate</li>
+                <li data-step="report">Verdict</li>
             </ol>
-            <ul class="log" id="log"></ul>
+            <ul class="wire" id="log"></ul>
         </section>
 
-        <section class="hidden" id="results">
-            <div class="card verdict" id="verdict"></div>
-            <div class="tiles" id="tiles"></div>
-            <div class="grid2">
-                <section class="card">
-                    <h2>Sentiment: groups vs everyone else</h2>
-                    <div id="sentiment"></div>
-                </section>
-                <section class="card">
-                    <h2>Comments over time <small id="tl-note"></small></h2>
-                    <div id="timeline"></div>
-                </section>
-            </div>
-            <section class="card">
-                <h2>Groups <small>candidates from the statistics, each argued by an Investigator and a Defense</small></h2>
+        <!-- Report: one question per section, answered in one sentence, then the picture, then details on demand -->
+        <article class="report hidden" id="results">
+            <div class="video" id="video"></div>
+
+            <section class="step" id="s-verdict">
+                <header><i>1</i><div><h2>The verdict</h2><p>Are fake-looking accounts steering or gaming this comment section?</p></div></header>
+                <div id="verdict"></div>
+            </section>
+
+            <section class="step" id="s-sides">
+                <header><i>2</i><div><h2>The video and its sides</h2><p>What the video says, and which side new accounts take compared with established commenters.</p></div></header>
+                <p class="takeaway" id="sides-takeaway"></p>
+                <div id="sides"></div>
+            </section>
+
+            <section class="step" id="s-groups">
+                <header><i>3</i><div><h2>The groups</h2><p>Which accounts acted together, and why we think so.</p></div></header>
+                <p class="takeaway" id="groups-takeaway"></p>
                 <div id="groups"></div>
             </section>
-            <section class="card">
-                <h2>Comments <small id="comments-note"></small></h2>
+
+            <section class="step" id="s-scope">
+                <header><i>4</i><div><h2>How they stand out</h2><p>Every account as a dot. Closer to the centre = a newer account. Clockwise = the order they commented in.</p></div></header>
+                <p class="takeaway" id="scope-takeaway"></p>
+                <div class="plot-grid">
+                    <div id="plot" class="plot"></div>
+                    <aside class="plot-side">
+                        <div class="plot-legend" id="plot-legend"></div>
+                        <div class="plot-info" id="plot-info">Hover over a dot to see the account.</div>
+                    </aside>
+                </div>
+            </section>
+
+            <section class="step" id="s-tone">
+                <header><i>5</i><div><h2>Tone</h2><p>Do the groups sound different from everyone else? A machine-learning model reads each comment.</p></div></header>
+                <p class="takeaway" id="tone-takeaway"></p>
+                <div id="sentiment"></div>
+            </section>
+
+            <section class="step" id="s-timing">
+                <header><i>6</i><div><h2>Timing</h2><p>When did the comments arrive, and when did the groups post?</p></div></header>
+                <p class="takeaway" id="timing-takeaway"></p>
+                <div id="timeline"></div>
+            </section>
+
+            <section class="step" id="s-ask">
+                <header><i>7</i><div><h2>Ask a follow-up</h2><p>Ask anything about this comment section. The analyst searches the comments before it answers.</p></div></header>
+                <div class="suggest" id="suggest"></div>
+                <div class="chat" id="chat"></div>
+                <form class="ask" id="ask-form">
+                    <label class="sr-only" for="question">Your question</label>
+                    <textarea id="question" rows="2" placeholder="e.g. What are the other commenters angry about?" required></textarea>
+                    <button type="submit" id="ask-btn">Ask</button>
+                </form>
+            </section>
+
+            <details class="step all-comments" id="s-comments">
+                <summary><i>+</i><div><h2>All comments</h2><p id="comments-note">Every comment with its tone and group. Filter to check the evidence yourself.</p></div></summary>
                 <div class="filters" id="filters"></div>
                 <div id="comments"></div>
-                <button class="btn ghost hidden" id="more" type="button">Show more</button>
-            </section>
-        </section>
+                <button class="more hidden" id="more" type="button">Show more</button>
+            </details>
+        </article>
     </main>
 
     <footer>
-        Comment Radar's labels are its own analysis, not YouTube data. It reports groups, not individuals; accounts are shown as masked ids.
-        Data: YouTube Data API v3. Models: Gemini on Vertex AI; sentiment by a Hugging Face model.
+        Comment Radar's labels are its own analysis, not YouTube data. It reports groups, not individuals; accounts appear only as masked ids.
+        Data: YouTube Data API v3 · Video and agents: Gemini on Vertex AI · Tone: a Hugging Face model · Tools served over MCP.
     </footer>
 
     <script src="/static/app.js"></script>

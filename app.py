@@ -4,6 +4,7 @@
 
 GET  /analyze?url=...   streams one analysis to the page as Server-Sent Events
 POST /api/analyze       the same analysis as one JSON reply (for evals and scripts)
+POST /api/ask           a follow-up question about an analyzed video, answered by an agent with the MCP tools
 
 The radar's tools run in radar-mcp, an MCP server this app starts as a subprocess and keeps for its lifetime.
 """
@@ -27,7 +28,7 @@ HERE = Path(__file__).parent
 load_dotenv(HERE / ".env")  # before importing the agents, which read env vars
 
 from agent.logs import setup as setup_logging  # noqa: E402
-from agent.pipeline import analyze, radar_server  # noqa: E402
+from agent.pipeline import analyze, ask, radar_server  # noqa: E402
 from radar_mcp.youtube import video_id_from_url  # noqa: E402
 
 log = setup_logging()
@@ -136,6 +137,30 @@ async def analyze_json(request: AnalyzeRequest):
         report = await analyze(request.url, app.state.radar, fresh=request.fresh)
     remember(video_id, report)
     return report
+
+
+class AskRequest(BaseModel):
+    url: str
+    question: str
+    history: list[dict] = []  # earlier [{"question", "answer"}] in this conversation, oldest first
+
+
+@app.post("/api/ask")
+async def ask_followup(request: AskRequest):
+    """A follow-up question about a video analyzed in this session. Takes 5-20 seconds."""
+    video_id = check_url(request.url)
+    question = request.question.strip()[:500]
+    if not question:
+        raise HTTPException(400, "The question is empty.")
+    if video_id not in reports:
+        raise HTTPException(404, "Analyze this video first; the server may have restarted since.")
+    history = [{"question": str(h.get("question", ""))[:500], "answer": str(h.get("answer", ""))[:3000]}
+               for h in request.history if isinstance(h, dict)]
+    try:
+        return await ask(question, reports[video_id], history, app.state.radar)
+    except Exception as e:
+        log.exception("follow-up failed")
+        raise HTTPException(502, f"The answer failed: {type(e).__name__}: {str(e)[:200]}")
 
 
 if __name__ == "__main__":

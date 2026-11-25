@@ -21,17 +21,19 @@ Running the agents needs `.env` (copy `.env.example`) and `gcloud auth applicati
 
 - `DESIGN.md` must be written by hand, by the team. Never write or edit it.
 - Use the OpenAI Agents SDK (`agents`, installed as `openai-agents`) for agent features rather than writing your own.
-- Vertex AI credits and YouTube quota (10,000 units a day; a 1,000-comment video costs about 50) are limited. Check changes with the tests first. Ask before running real analyses in a loop.
+- Vertex AI credits and YouTube quota (10,000 units a day; a 3,500-comment video costs about 120) are limited. Check changes with the tests first. Ask before running real analyses in a loop.
 - `tests/conftest.py` blocks model calls and sets `SENTIMENT_BACKEND=vader`, so `pytest` is free and fast. `tests/synthetic.py` builds made-up comment sections with known groups.
 
 ## Architecture
 
 `app.py` starts `radar-mcp` as a subprocess (`agent/pipeline.py:radar_server`) and keeps it for the app's lifetime. `agent/pipeline.py:analyze` runs one analysis:
 
-1. Code calls MCP tools: `fetch_thread` → `analyze_sentiment` → `find_groups`.
+1. Code calls MCP tools: `fetch_thread`, then in parallel `analyze_sentiment` and the sides check: `stance_sample` → the Watcher (`agent/video.py`, Gemini watches the YouTube link via google-genai, not an agent) → Labeler agents in parallel batches (`label_stances`) → `save_stances`. Then `find_groups`. A failure in the sides check skips it, not the run; a thread that already has stances skips it.
 2. For each group with score ≥ `MIN_SCORE` (top `MAX_INVESTIGATED`), in parallel: Investigator → Defense. Both are agents with the read-only MCP tools in `AGENT_TOOLS` and structured output (`agent/schemas.py`).
 3. Code sets each group's status and confidence from the Defense verdict, and the thread's verdict (`verdict_of`).
 4. Reporter writes the headline. Code calls `report_data` for everything the page draws.
+
+Follow-ups: `POST /api/ask` runs `pipeline.ask`, an Analyst agent with the same MCP tools, on a report kept in `reports` (so the video must be analyzed in this server's lifetime). It gets `report_brief(report)` and the last `MAX_HISTORY` turns, not the comment list: it searches comments with `search_comments`.
 
 A failed agent costs its group the review, not the run. Every agent has the `groups_not_people` output guardrail; a trip gets one rewrite, then `scrub`.
 
@@ -45,15 +47,17 @@ A failed agent costs its group the review, not the run. Every agent has the `gro
 
 ### Signals and ML (ML owner)
 
-- `signals.py:find_groups`: links accounts (`similar_text`, `reply_chain`), groups them, computes features. Thresholds are the constants at the top.
+- `signals.py:find_groups`: links accounts (`similar_text`, `reply_chain`), adds steering groups from `stance_comparison` (sides new accounts push), groups them, computes features. Thresholds are the constants at the top.
 - `signals.py:score_group` is the seam for a trained model: features dict in, score 0-1 and signal contributions out. Keep that contract and nothing else changes.
 - `sentiment.py:classify` is the seam for the sentiment model: texts in, `{"label", "score", "scores"}` out. `SENTIMENT_MODEL` swaps the Hugging Face model; the Dockerfile preloads it at build.
 
 ## Coupling that spans files
 
 - **Event stream:** events passed to `emit` in `pipeline.py` (`step`, `finding`, `defense`, `done`, `error`) are handled by `handle()` in `static/app.js`. `done` and `error` end the stream in `app.py`.
+- **Plot:** `report_data`'s `accounts` (age at first comment, group) feed `renderPlot` in `static/app.js`.
 - **Report shape:** the `done` report in `pipeline.py` and `report_data` in `server.py` are drawn by `render*` in `static/app.js`. `Finding`/`Defense` fields are shown there too.
-- **Statuses and patterns:** group `status` values in `pipeline.py` and `pattern` values in `signals.py` / `schemas.Pattern` have labels in `STATUS` / `PATTERNS` in `static/app.js`.
+- **Statuses and patterns:** group `status` values in `pipeline.py` and `pattern` values in `signals.py` / `schemas.Pattern` have labels in `RULINGS` / `PATTERNS` in `static/app.js`; `schemas.Purpose` in `PURPOSES`.
+- **Stances:** labels are a side id (`S1`..) or `signals.OTHER_STANCES`; `save_stances` drops anything else. The page names them with `stanceName` / `OTHER_STANCES` in `static/app.js`. `brief` and `stance` in the report are drawn by `renderSides`.
 - **Agent tools:** `AGENT_TOOLS` in `pipeline.py` lists what agents may call; the prompts in `prompts.py` name those tools.
 - **Env vars and import order:** `pipeline.py` reads env vars at import, so `app.py` calls `load_dotenv` first.
 

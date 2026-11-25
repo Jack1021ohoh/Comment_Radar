@@ -3,6 +3,7 @@
 import litellm
 import pytest
 from agents import set_tracing_disabled
+from google.genai import models as genai_models
 
 set_tracing_disabled(True)
 
@@ -16,6 +17,7 @@ def offline(monkeypatch, tmp_path):
         raise RuntimeError("Tests must not call a real model.")
 
     monkeypatch.setattr(litellm, "acompletion", blocked)
+    monkeypatch.setattr(genai_models.AsyncModels, "generate_content", blocked)  # the Watcher
     monkeypatch.setenv("RUNS_DIR", str(tmp_path / "runs"))
     monkeypatch.setenv("CACHE_DIR", "")
     monkeypatch.setenv("LOG_FILE", "")
