@@ -6,6 +6,7 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy PYTHONUNBUFFERED=1 HF_HOME=/app/.hf
 COPY pyproject.toml uv.lock .python-version ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY . .
-RUN uv run --no-dev python -m radar_mcp.sentiment --preload
+# Preload both models so SENTIMENT_BACKEND=routed works without a download at start-up.
+RUN SENTIMENT_BACKEND=routed uv run --no-dev python -m radar_mcp.sentiment --preload
 ENV HOST=0.0.0.0 PORT=8080
 CMD ["uv", "run", "--no-dev", "app.py"]

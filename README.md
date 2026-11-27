@@ -51,6 +51,24 @@ When a thread is busy, young accounts appear in it by chance. The radar tests ea
 
 Stances are sampled, not read in full: every new account is labelled, but established accounts are a random sample of 600 comments, so their share of a side is within about ±4 points (95%). The page draws that interval. The unit is the account (each counts once, with the side most of its comments take), so one prolific commenter can't tip a side.
 
+## Sentiment eval
+
+A test set of 240 comments from 3 cached videos, stratified across non-English, promotion, possible sarcasm and general comments. Claude labelled them against written rules ([CRITERIA.md](evals/sentiment/CRITERIA.md): label the emotion shown, not the opinion; sarcasm and demands to punish count as negative). A human relabelled 71 of them, and those labels win. Human and Claude agree on 73% of comments, which sets a ceiling on how much any model can measurably improve.
+
+| Model | Accuracy | Macro-F1 |
+|---|---|---|
+| VADER | 40.8% | 0.375 |
+| twitter-roberta (default) | 75.4% | 0.743 |
+| XLM-R, multilingual | 73.3% | 0.670 |
+| Linear probe (mpnet + logistic regression) | 67.1% | 0.605 |
+| XLM-R, fine-tuned on 1,000 comments | 75.4% | 0.734 |
+| twitter-roberta, fine-tuned on 1,000 comments | 76.2% | 0.743 |
+| **Routed**: roberta, XLM-R for non-Latin text | **77.5%** | **0.756** |
+
+Fine-tuning didn't clearly help. Routing helps most on non-English comments (72% → 85% accuracy). Its gain over the default is +2.1 points, but the 95% CI is [0.0, +4.6] and McNemar's test gives p = 0.12, so it isn't significant. Routing costs about 4 ms more per comment. The default stays `transformer`; turn routing on with `SENTIMENT_BACKEND=routed`. SetFit was too slow to finish on a laptop.
+
+Comment data and labels are not committed (YouTube data must be deleted after 30 days). To rebuild: `make_sheet.py` → label → `python -m evals.sentiment.evaluate transformer routed`.
+
 ## Course concepts
 
 | Concept | Group | Where |
@@ -60,7 +78,7 @@ Stances are sampled, not read in full: every new account is labelled, but establ
 | Generator/Critic | Multi-Agent | Investigator and Defense: [agent/pipeline.py](agent/pipeline.py), [agent/prompts.py](agent/prompts.py) |
 | Structured output | Tools | [agent/schemas.py](agent/schemas.py) |
 | Guardrails | Tools | [agent/guardrails.py](agent/guardrails.py) (output), `check_url` in [app.py](app.py) (input) |
-| Offline eval | Evaluation | TODO `evals/` |
+| Offline eval | Evaluation | `evals/sentiment/` (see [Sentiment eval](#sentiment-eval)) |
 
 ## Run it locally
 

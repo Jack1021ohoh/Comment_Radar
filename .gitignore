@@ -14,3 +14,12 @@ data/raw/
 
 # Logs and run records (agent/logs.py)
 logs/
+
+# Labelled comments are YouTube data too (30-day rule): keep local
+evals/sentiment/*.csv
+
+# Trained models (large; publish to the Hugging Face Hub instead)
+models/
+evals/sentiment/*.numbers
+evals/sentiment/*.log
+__pycache__/
